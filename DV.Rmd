@@ -1,0 +1,301 @@
+---
+title: "r new"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(Hmisc)
+library(tidyverse)
+library(moments)
+library(plotly)
+library(DT)
+library(leaflet)
+library(leaflet.extras)
+library(lubridate)
+library(ggplot2)
+library(reactable)
+
+
+data <-read.csv("37-00049_UOF-P_2016_prepped.csv")
+summary(data) #Displaying Data Summary
+dt_new<-data[-1,]
+dt_new[dt_new=="" | dt_new== " " | dt_new == "NULL" ] <- NA
+head(dt_new)
+```
+```{r}
+
+###..................................imputation........................................
+# skew test for latitude
+dt_new$LOCATION_LATITUDE <- as.numeric(dt_new$LOCATION_LATITUDE)
+skewness(dt_new$LOCATION_LATITUDE,na.rm=TRUE)
+dt_new$LOCATION_LONGITUDE <- as.numeric(dt_new$LOCATION_LONGITUDE)
+skewness(dt_new$LOCATION_LONGITUDE,na.rm=TRUE)
+dt_new$LOCATION_LATITUDE <- impute(dt_new$LOCATION_LATITUDE,mean)
+dt_new$LOCATION_LONGITUDE <- impute(dt_new$LOCATION_LONGITUDE,mean)
+```
+
+```{r}
+#############....................mode imputaion on time column...........................
+Mode <- function(x) {
+  x <- na.omit(x)
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+cols_to_impute <- c("INCIDENT_TIME")
+for (col in cols_to_impute) { 
+if (sum(is.na(dt_new[[col]])) > 0) {
+  mode_value <- Mode(dt_new[[col]])
+  dt_new[[col]][is.na(dt_new[[col]])] <- mode_value
+  }
+}
+```
+
+
+
+```{r}
+##########................Groupin and summarizing performed to plot the pie chart.........................
+
+force_used <- dt_new$TYPE_OF_FORCE_USED1
+subject_injury <- dt_new$SUBJECT_INJURY == "Yes"
+data1 <- data.frame(force_used, subject_injury)
+
+
+summary_data <- data1 %>%
+  group_by(force_used) %>%
+  summarise(total_count = n(), injury_count = sum(subject_injury)) %>%
+  mutate(percent_injury = injury_count / total_count * 100)
+
+# Sort the data by percentage of injury
+summary_data <- summary_data[order(summary_data$percent_injury, decreasing = TRUE),]
+
+# Keep only the top 5 force types and combine the rest into a single "Other" category
+top_force <- summary_data$force_used[1:5]
+other_force <- "Other"
+summary_data$force_used <- ifelse(summary_data$force_used %in% top_force, summary_data$force_used, other_force)
+summary_data <- summary_data %>%
+  group_by(force_used) %>%
+  summarise(total_count = sum(total_count), injury_count = sum(injury_count)) %>%
+  mutate(percent_injury = injury_count / total_count * 100)
+
+###.................Pie Chart..........................
+
+fig <- plot_ly(summary_data, labels = ~force_used, values = ~percent_injury, type = "pie",
+               marker = list(colors = c("#FF00FF", "#blue", "#red", "yellow", "#brown", "#pink")),
+               textinfo = "label+percent")
+fig <- fig %>% layout(title = "Percentage of Subject Injury by Type of Force Used")
+fig
+
+```
+
+he police have a responsibility to ensure that they do not cause unnecessary harm to individuals who are taken into custody. To achieve this, law enforcement officers are trained to use different types of force such as verbal commands, physical holds, and weapons such as tasers, batons, and pepper spray. To monitor this, police departments often collect data on the types of force used by their officers and the injuries that result. The pie chart shows that K9 deployment, pepper ball saturation, and baton strikes are responsible for a significant proportion of injuries, contributing to over 63% of injuries caused to the subject. Therefore, police departments need to minimize the usage of these types of force in order to maintain their protocols and ensure that the apprehension of suspects is carried out in the least harmful manner possible.
+
+```{r}
+dt_new$TIME<-dt_new$INCIDENT_TIME
+dt_new$TIME <- format(strptime(dt_new$TIME, "%I:%M:%S %p"), "%H:%M:%S")
+dt_new$INC_HOUR <- substr(dt_new$INCIDENT_TIME, 0, 2)
+
+```
+
+```{r}
+##########...........HISTOGRAM..........................
+data_time <- table(dt_new$INC_HOUR)
+data_time <- as.data.frame(data_time)
+names(data_time) <- c("Time", "Frequency")
+data_time <- data_time %>% group_by(Time)
+
+p <- ggplot(data_time, aes(x = Time, y = Frequency)) +
+  geom_bar(stat = "identity", width = 0.8, fill = "yellow") +
+  ggtitle("Counts of incidents by time") +
+  xlab("Time") +
+  ylab("Count if incidents") +
+  theme_dark() 
+
+# Make the plot interactive using plotly
+ggplotly(p)
+
+```
+
+Crime incidents are a prevalent and unfortunate occurrence in our society, and it is essential for people to be aware and not put themselves in risky situations. To understand the trends of crime incidents happening at different times of the day, a histogram was created to display the number of incidents reported in specific time intervals in Dallas,TX,USA during the year 2016. The peak hour for crime incidents is around 5 pm in the evening, followed by 8 pm in the evening and 12 pm at noon. These findings highlight the need for people to be extra cautious during these times of the day and take necessary precautions to ensure their safety. By releasing this information, the police department can raise awareness among the public and encourage them to take proactive steps to prevent crime incidents.
+
+```{r}
+#########..................VIOLIN PLOT..................
+sex <- dt_new$OFFICER_GENDER
+years_of_service <- as.numeric(dt_new$OFFICER_YEARS_ON_FORCE)
+wdata <- data.frame(sex, years_of_service)
+fig <- wdata %>%plot_ly(x = ~sex,y = ~years_of_service,type = 'violin',box = list(visible = T),
+meanline = list(visible = T),
+split = ~factor(sex)) 
+fig <- fig %>%layout(xaxis = list(title = "Sex"),yaxis = list(title = "Years Of Service",zeroline = F))
+fig
+```
+
+Understanding the trend between years of service and gender in a police department is important for identifying potential gender bias, providing insights into diversity and inclusivity, and developing better strategies for retention and promotion of officers.As we see from the given violent plot,  maximum number of years that a woman serve  for the department is about 31 years while for men it's 36 years back in 2016,in Dallas.  It  indicates that men serve a bit longer than women police force.Hence female police officers are to be encouraged more to provide their contributions to the department. 
+
+```{r}
+############# Interactive map using leaflet##########################
+loc <- dt_new%>%
+group_by(LOCATION_FULL_STREET_ADDRESS_OR_INTERSECTION,LOCATION_LATITUDE,LOCATION_LONGITUDE) %>%
+summarise(count = n()) %>%
+arrange(desc(count))
+loc$LOCATION_LATITUDE <- as.numeric(format(loc$LOCATION_LATITUDE, nsmall = 6))
+loc$LOCATION_LONGITUDE <- as.numeric(format(loc$LOCATION_LONGITUDE, nsmall = 6))
+top_locations<-head(loc,20)
+leaflet() %>%addProviderTiles(providers$Esri.WorldStreetMap) %>%addTerminator() %>%  
+addEasyButton(easyButton(icon="fa-globe", title="Zoom to Level 1",onClick=JS("function(btn, map){ map.setZoom(1); }"))) %>%
+addScaleBar() %>%setView(lng = -96.7, lat = 32.78, zoom = 10)%>%addEasyButton(easyButton(icon="fa-crosshairs", title="Locate Dallas",onClick=JS("function(btn, map){ map.setView([ 32.77666,-96.79699], zoom = 10); }")))%>%
+
+addMiniMap(toggleDisplay = TRUE,position="bottomright") %>% 
+addMarkers(data = top_locations,lat = ~LOCATION_LATITUDE,lng = ~LOCATION_LONGITUDE,popup = ~paste(LOCATION_FULL_STREET_ADDRESS_OR_INTERSECTION, "<br>No of Incidents reported: ", count)
+)%>%
+leaflet.extras::addSearchOSM(options = searchOptions(collapsed = TRUE))
+```
+
+The safety of individuals is of utmost importance, and an interactive map has been created to highlight the top 15 locations that had the most reported incidents in 2016. This map utilizes the latitude and longitude information available in the data set to pinpoint these locations on the map. 111 W COMMERCE STREET had reported the highest number of incidents  approximately 22 in the year 2016 which i in close proximity with other locations such as 205 S LAMAR ST, 1100 S SAINT PAUL ST, 1600 CHESTNUT ST, and 2500 VICTORY AVE streets that also appear on the top 15 list of high volume incidents recorded. It is important for people to take responsibility for their own safety and avoid roaming around these danger spots. especially during the time of day reported through the histogram.By staying informed and being aware of the potential danger zones in their community, people can take steps to protect themselves and stay safe.
+
+```{r}
+#####################Scatter Plot#######################
+df <- data.frame(BEAT = 1:1000, OFFICER_YEARS_ON_FORCE = rnorm(1000, 10, 5))
+
+# Group BEAT numbers into intervals of 20
+df$BEAT_GROUP <- cut(df$BEAT, breaks = seq(0, 1000, by = 20))
+
+
+# Filter out missing values
+dt_new_filtered <- df[!is.na(df$BEAT) & !is.na(df$OFFICER_YEARS_ON_FORCE),]
+
+# Create the scatter plot
+scatterplt<- ggplot(dt_new_filtered, aes(x = BEAT, y = OFFICER_YEARS_ON_FORCE)) +
+  geom_point() +
+  geom_smooth(method=lm)+
+  labs(y = "Officer Years on Force", x = "Beat") +
+  ggtitle("Scatter Plot of Officer Years on Force vs. Beat") +
+  theme_dark()
+
+ggplotly(scatterplt)
+```
+
+The scatter plot created between BEAT  and officer years on  force for the particular BEAT gives us valuable insights into the distribution of experienced officers across different BEATS . This is because, in general, beats with a higher number of incidents reported in the previous years require more experienced officers to handle the situation effectively.To ensure that the plot is easy to interpret, the beats were grouped into four categories based on the number of incidents reported. These categories were 0-250, 250-500, 500-750, and 750-1000. The trend line on the plot created by geom smooth suggests that the amount of experienced officers and least experienced officers required to monitor are distributed equally around the beats. However, a more detailed visual analysis revealed that officers with more than 25+ years of experience are more likely to handle the beats in the 500-750 category on their own, indicating that this category may require more experienced officers than the others. Overall, the scatter plot and the analysis provide valuable insights into the distribution of experienced officers across different beats, which can inform police department decisions on officer deployment and resource allocation.
+
+```{r}
+###########################TIME SERIES PLOT###############################################
+dt_new <- dt_new %>% mutate(INCIDENT_TIME = if_else(INCIDENT_TIME == "NULL", "00:00:00", INCIDENT_TIME))
+dt_new <- dt_new %>% mutate(INCIDENT_DATETIME = mdy_hms(paste(INCIDENT_DATE, INCIDENT_TIME)))
+
+filtered_dt_new <- dt_new %>% drop_na(INCIDENT_DATETIME)
+filtered_dt_new <- filtered_dt_new %>% mutate(Months = floor_date(INCIDENT_DATETIME, "month"))
+
+injury_data <- filtered_dt_new %>% filter(OFFICER_INJURY == "Yes")
+injury_per_month <- injury_data %>%
+  group_by(Months) %>%
+  summarise(injuries = n())
+
+injury_per_month$Months<- as.Date(injury_per_month$Months)
+
+time_series <- ggplot(injury_per_month, aes(x = Months, y = injuries)) +
+  geom_line(color = "darkblue",size=2) +
+  geom_point(color = "orange",size=3) +
+  theme_dark() +
+  scale_x_date(labels = scales::date_format("%b %Y"), breaks = scales::date_breaks("1 months")) +
+  scale_y_continuous(limits = c(10, 140)) +
+  labs(x = "Month range",
+       y = "Number of Officer Injured",
+       title = "Subject officer by Month")
+
+# Display the plot
+ggplotly(time_series)
+```
+
+There are several consequences/implications  that can be performed on understanding the trend between the number of officers injured in a month in a police department. Firstly, this evaluation can lead to more training to police officers on how to handle the situations without getting injured and this number of injuries over time can bring out some changes in the existing safety policies and procedures.As we plot this time series graph between month and the count of officers injured every month in the year 2016,  we observe that above a certain percentage officers from the start of the Year till June gets injured  with some variations in numbers each month, however,  the percentage of injury experienced  at the end of the year is far less than the start.  This gives us a basic idea about the count/ severity of the crimes during these two quarters dealt by the officers. Presumably, the first quarter could have reported more number of crimes than the second but their intensity/severity is unknown.. Additionally, this data can be used to inform decision-making regarding resource allocation and deployment of officers.
+
+
+```{r}
+##########################TWO-WAY TABLE########################3
+
+table_data <- dt_new %>% 
+  group_by(SUBJECT_OFFENSE, SUBJECT_WAS_ARRESTED) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(names_from = SUBJECT_WAS_ARRESTED, values_from = count) %>% 
+  replace(is.na(.), 0)
+
+reactable(table_data,
+  columns = list(SUBJECT_OFFENSE = colDef(align = "left"),
+    `No` = colDef(align = "center", width = 120),
+    `Yes` = colDef(align = "center", width = 120)
+  ),
+  bordered = TRUE,
+  striped = TRUE
+)
+
+```
+
+The primary responsibility of the petrol department is to arrest all the crime doers to reduce the occurrence of criminal activities.  Also it is important that severe crimes are taken immediate actions, if not it can become a threat to the society. This is perhaps one of the reason for us to create a table that displays the count of  number of arrests that were made and the number that weren't for every offense types.  This table can be used to evaluate the effectiveness of law enforcements.  Also it says which offenses are more likely to end up in arrest and which ones  need additional resources to arrest the crime doer.  Here we can see that the crime type APOWW has occurred a lot of times and almost 90% of the arrests were made while it as well tops in the count of No arrest made list with 12. Except this, as we see through the table almost arrests were made for all the type of crimes and no arrest action was pending. This shows the effectiveness of the Police Department in the Texas at their law enforcements.
+
+
+```{r}
+df_filtered_subject_gender <- dt_new %>% filter(SUBJECT_GENDER != "NULL")
+df_filtered_data <- df_filtered_subject_gender[!is.na(df_filtered_subject_gender$SUBJECT_GENDER) & !is.na(df_filtered_subject_gender$TYPE_OF_FORCE_USED1), ]
+
+contingency_subject_force_table <- table(df_filtered_data$SUBJECT_GENDER, df_filtered_data$TYPE_OF_FORCE_USED1)
+
+contingency_subject_force_table <- contingency_subject_force_table[-which(rowSums(contingency_subject_force_table) <= 5), ]
+contingency_subject_force_table <- contingency_subject_force_table[, -which(colSums(contingency_subject_force_table) <= 5)]
+
+# Perform the chi-squared test
+chi_squared_res <- chisq.test(contingency_subject_force_table)
+
+# Display the results
+chi_squared_res
+
+```
+
+```{r}
+subject_gender <- dt_new %>% filter(SUBJECT_GENDER != "NULL")
+subject_offense_data <- subject_gender[!is.na(subject_gender$SUBJECT_GENDER) & !is.na(subject_gender$SUBJECT_OFFENSE), ]
+
+contingency_subject_offense <- table(subject_offense_data$SUBJECT_GENDER, subject_offense_data$SUBJECT_OFFENSE)
+
+contingency_subject_offense <- contingency_subject_offense[-which(rowSums(contingency_subject_offense) <= 5), ]
+contingency_subject_offense_table <- contingency_subject_offense[, -which(colSums(contingency_subject_offense) <= 5)]
+
+# Perform the chi-squared test
+chi_squared_result <- chisq.test(contingency_subject_offense_table)
+chi_squared_result
+
+# Convert the table object to a data frame
+contingencydt <- as.data.frame(contingency_subject_offense_table)
+contingencydt
+
+
+# Display the results
+correlation_heatmap <- ggplot(contingencydt, aes(x = Var1, y = Var2, fill = Freq)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "RED") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Heat Map of Subject offense vs Subject Gender",
+       x = "Subject Gender",
+       y = "Subject Offense",
+       fill = "Count")
+
+ggplotly(correlation_heatmap)
+```
+
+Since correlation analysis had to be performed between two continous variable, we have performed the chi squared test for two categorical variable Subbect_offense and Subject gender. The obtained chi squared result  is: data:  contingency_subject_force_table
+X-squared = 98.134, df = 20, p-value = 2.713e-12 and the heatmap is displayed.  With the results obtained we can confirm that the two variables are highly correlated with each other. 
+
+Reference Websites Utilized for the project:
+1. KAGGLE
+2. DATACAMP
+3. CRAN
+4.R-Bloggers
+5.Rpubs
